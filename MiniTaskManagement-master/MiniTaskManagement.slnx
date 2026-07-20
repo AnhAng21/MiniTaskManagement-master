@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="MiniTaskManagement.Api/MiniTaskManagement.Api.csproj" />
+  <Project Path="MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj" />
 </Solution>
