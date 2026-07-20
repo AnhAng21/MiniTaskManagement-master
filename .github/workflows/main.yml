@@ -19,10 +19,10 @@ jobs:
         dotnet-version: 8.0.x
 
     - name: Restore dependencies
-      run: dotnet restore MiniTaskManagement.Api/*.csproj
+      run: dotnet restore MiniTaskManagement-master/MiniTaskManagement.Api/*.csproj
 
     - name: Build
-      run: dotnet build MiniTaskManagement.Api/*.csproj --no-restore
+      run: dotnet build MiniTaskManagement-master/MiniTaskManagement.Api/*.csproj --no-restore
 
     - name: Test
-      run: dotnet test MiniTaskManagement.Api/*.csproj --no-build --verbosity normal
+      run: dotnet test MiniTaskManagement-master/MiniTaskManagement.Api/*.csproj --no-build --verbosity normal
