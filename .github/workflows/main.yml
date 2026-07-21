@@ -13,7 +13,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Bắt buộc để SonarCloud đọc lịch sử commit
+        fetch-depth: 0
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -33,6 +33,8 @@ jobs:
       run: dotnet restore MiniTaskManagement-master/MiniTaskManagement.slnx
 
     - name: Begin SonarCloud Analysis
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       run: |
         dotnet-sonarscanner begin \
           /k:"AnhAng21_MiniTaskManagement-master" \
@@ -47,4 +49,6 @@ jobs:
       run: dotnet test MiniTaskManagement-master/MiniTaskManagement.Tests/*.csproj --no-build
 
     - name: End SonarCloud Analysis
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       run: dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
