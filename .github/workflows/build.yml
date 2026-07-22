@@ -1,0 +1,48 @@
+name: Build, Test & SonarQube Analysis
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x' # Hoặc phiên bản .NET bạn đang dùng (8.0.x / 9.0.x)
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build Solution
+      run: dotnet build --no-restore --configuration Release
+
+    # ===================================================
+    # KỊCH BẢN 1: AUTHENTICATION & AUTHORIZATION
+    # ===================================================
+    - name: 🧪 Run Scenario 1 - Auth Tests (Register, Login, Role)
+      run: >
+        dotnet test MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj
+        --no-build
+        --configuration Release
+        --filter "FullyQualifiedName~RegisterTests|FullyQualifiedName~LoginTests|FullyQualifiedName~AuthorizationTests"
+        --logger "console;verbosity=normal"
+
+    # ===================================================
+    # KỊCH BẢN 2: TASK MANAGEMENT
+    # ===================================================
+    - name: 🧪 Run Scenario 2 - Task Management Tests
+      run: >
+        dotnet test MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj
+        --no-build
+        --configuration Release
+        --filter "FullyQualifiedName~TaskTests"
+        --logger "console;verbosity=normal"
