@@ -17,22 +17,20 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '10.0.x' # Hoặc 8.0.x tùy phiên bản .NET bạn cài
+        dotnet-version: '10.0.x'
 
-    # 1. Restore bằng cách chỉ định file Solution cụ thể (hoặc tìm file .sln)
     - name: Restore dependencies
-      run: dotnet restore **/*.sln
+      run: dotnet restore MiniTaskManagement.sln
 
-    # 2. Build file Solution
     - name: Build Solution
-      run: dotnet build **/*.sln --no-restore --configuration Release
+      run: dotnet build MiniTaskManagement.sln --no-restore --configuration Release
 
     # ===================================================
     # KỊCH BẢN 1: AUTHENTICATION & AUTHORIZATION
     # ===================================================
     - name: 🧪 Run Scenario 1 - Auth Tests (Register, Login, Role)
       run: >
-        dotnet test **/*.Tests.csproj
+        dotnet test MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj
         --no-build
         --configuration Release
         --filter "FullyQualifiedName~RegisterTests|FullyQualifiedName~LoginTests|FullyQualifiedName~AuthorizationTests"
@@ -43,7 +41,7 @@ jobs:
     # ===================================================
     - name: 🧪 Run Scenario 2 - Task Management Tests
       run: >
-        dotnet test **/*.Tests.csproj
+        dotnet test MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj
         --no-build
         --configuration Release
         --filter "FullyQualifiedName~TaskTests"
