@@ -17,13 +17,15 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '10.0.x' # Hoặc phiên bản .NET bạn đang dùng (8.0.x / 9.0.x)
+        dotnet-version: '10.0.x'
 
+    # Tìm chính xác tên file .sln để restore
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore MiniTaskManagement.sln
 
+    # Build file .sln
     - name: Build Solution
-      run: dotnet build --no-restore --configuration Release
+      run: dotnet build MiniTaskManagement.sln --no-restore --configuration Release
 
     # ===================================================
     # KỊCH BẢN 1: AUTHENTICATION & AUTHORIZATION
