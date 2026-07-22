@@ -10,6 +10,11 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
+    # Chỉ định thư mục làm việc chính chứa file .sln
+    defaults:
+      run:
+        working-directory: MiniTaskManagement-master
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -20,10 +25,10 @@ jobs:
         dotnet-version: '10.0.x'
 
     - name: Restore dependencies
-      run: dotnet restore MiniTaskManagement.sln
+      run: dotnet restore
 
     - name: Build Solution
-      run: dotnet build MiniTaskManagement.sln --no-restore --configuration Release
+      run: dotnet build --no-restore --configuration Release
 
     # ===================================================
     # KỊCH BẢN 1: AUTHENTICATION & AUTHORIZATION
