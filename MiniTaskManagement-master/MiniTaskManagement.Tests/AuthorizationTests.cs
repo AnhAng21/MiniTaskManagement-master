@@ -1,3 +1,5 @@
+using MiniTaskManagement.Api.DTOs;
+using MiniTaskManagement.Api;
 using Xunit;
 using System.Net;
 

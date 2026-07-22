@@ -1,3 +1,5 @@
+using MiniTaskManagement.Api.DTOs;
+using MiniTaskManagement.Api;
 using Xunit;
 using FluentAssertions;
 
@@ -8,7 +10,7 @@ public class LoginTests
     public async Task Login_WithCorrectCredentials_Returns200OkWithToken()
     {
         // Arrange
-        var request = new LoginDto 
+        var request = new LoginRequest
         { 
             Email = "testuser@example.com", 
             Password = "Password123!" 
@@ -26,7 +28,7 @@ public class LoginTests
     public async Task Login_WithIncorrectPassword_Returns401UnauthorizedOr400BadRequest()
     {
         // Arrange
-        var request = new LoginDto 
+        var request = new LoginRequest
         { 
             Email = "testuser@example.com", 
             Password = "WrongPassword!" 
@@ -41,7 +43,7 @@ public class LoginTests
     public async Task Login_WithNonExistentEmail_Returns401UnauthorizedOr400BadRequest()
     {
         // Arrange
-        var request = new LoginDto 
+        var request = new LoginRequest
         { 
             Email = "notfound@example.com", 
             Password = "Password123!" 

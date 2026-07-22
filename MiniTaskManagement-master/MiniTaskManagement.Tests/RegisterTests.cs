@@ -1,3 +1,5 @@
+using MiniTaskManagement.Api.DTOs;
+using MiniTaskManagement.Api;
 using Xunit;
 using Moq;
 using FluentAssertions;
@@ -10,7 +12,7 @@ public class RegisterTests
     public async Task Register_WithValidData_Returns200Ok()
     {
         // Arrange
-        var request = new RegisterDto 
+        var request = new RegisterRequest 
         { 
             FullName = "Test User", 
             Email = "testuser@example.com", 
@@ -31,7 +33,7 @@ public class RegisterTests
     public async Task Register_WhenEmailAlreadyExists_Returns400BadRequest()
     {
         // Arrange
-        var request = new RegisterDto 
+        var request = new RegisterRequest 
         { 
             FullName = "Test User", 
             Email = "existing@example.com", 
@@ -47,7 +49,7 @@ public class RegisterTests
     public async Task Register_WhenPasswordIsTooShort_Returns400BadRequest()
     {
         // Arrange
-        var request = new RegisterDto 
+        var request = new RegisterRequest
         { 
             FullName = "Test User", 
             Email = "test@example.com", 
