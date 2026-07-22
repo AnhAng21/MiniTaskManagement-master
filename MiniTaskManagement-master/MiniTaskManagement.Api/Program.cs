@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using MiniTaskManagement.Api.Data;
+using MiniTaskManagement.Api.Entities;
 using MiniTaskManagement.Api.Hubs;
 using MiniTaskManagement.Api.Services;
 
@@ -122,5 +123,45 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");
+
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    dbContext.Database.Migrate();
+
+    var seedUsers = new List<(string Email, string Password, string FullName, string Role)>
+    {
+        ("admin", "admin", "Admin User", "Admin"),
+        ("user1", "user1", "Regular User One", "User"),
+        ("user2", "user2", "Regular User Two", "User")
+    };
+
+    foreach (var seed in seedUsers)
+    {
+        var existing = dbContext.Users.FirstOrDefault(x => x.Email == seed.Email);
+        if (existing == null)
+        {
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                FullName = seed.FullName,
+                Email = seed.Email,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(seed.Password),
+                Role = seed.Role,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            existing.FullName = seed.FullName;
+            existing.PasswordHash = BCrypt.Net.BCrypt.HashPassword(seed.Password);
+            existing.Role = seed.Role;
+            existing.IsActive = true;
+        }
+    }
+
+    dbContext.SaveChanges();
+}
 
 app.Run();
