@@ -96,36 +96,44 @@
 
 ## 2. Task Management
 
-### 2.1 Create Task
-- Verify a user can create a task with title, description, due date, project, and priority.
-- Validate error when required task fields are missing.
-- Verify task is assigned to the correct project and user.
+### 2.0 Tổng quát
+- Chuẩn bị: seed database với một `Project` và hai user (`ownerUser`, `otherUser`) và một `Admin`.
+- Sử dụng endpoints của `TasksController` (ví dụ `POST /api/tasks`, `PUT /api/tasks/{id}`, `DELETE /api/tasks/{id}`, `GET /api/tasks/{id}`).
+- Thực hiện kiểm thử với token JWT của `ownerUser`, `otherUser`, và `Admin`.
 
-### 2.2 Update Task
-- Verify user can update task fields: title, description, status, due date.
-- Verify user cannot modify task of another user unless authorized.
-- Validate error when updating with invalid status.
+### 2.1 Test Case Chi Tiết
 
-### 2.3 Delete Task
-- Verify user can delete their own task.
-- Verify admin can delete any task.
-- Verify deleting a non-existent task returns not found.
+| Test Case ID | Scenario | Steps | Input | Expected Result |
+|--------------|----------|-------|-------|-----------------|
+| TASK-01 | Tạo task hợp lệ | 1. Login `ownerUser` → lấy token<br>2. Gửi `POST /api/tasks` với token | `{ "title":"Task A","description":"desc","dueDate":"2026-08-01","projectId":"<projId>","priority":"High" }` | `201 Created`, response chứa `id`, task tồn tại trong DB và `ownerId` = `ownerUser` |
+| TASK-02 | Tạo task thiếu trường bắt buộc | 1. Gửi `POST /api/tasks` thiếu `title` | `{ "description":"no title" }` | `400 Bad Request`, validation error |
+| TASK-03 | Tạo task với project không tồn tại | 1. Gửi `POST /api/tasks` với `projectId` fake | `{ "title":"x","projectId":"00000000-0000-0000-0000-000000000000" }` | `404 Not Found` hoặc validation error |
+| TASK-04 | Cập nhật task bởi chủ sở hữu | 1. Tạo task bởi `ownerUser`<br>2. Gửi `PUT /api/tasks/{id}` thay đổi `title` | `{ "title":"Task A updated" }` | `200 OK`, task được cập nhật trong DB |
+| TASK-05 | Cập nhật task bởi user khác | 1. Login `otherUser`<br>2. Gọi `PUT /api/tasks/{id}` của `ownerUser` | `{ "title":"hacked" }` | `403 Forbidden` hoặc `401 Unauthorized` |
+| TASK-06 | Cập nhật với trạng thái không hợp lệ | 1. Gửi `PUT /api/tasks/{id}` với `status` invalid | `{ "status":"NotAStatus" }` | `400 Bad Request` với message validation |
+| TASK-07 | Xóa task bởi chủ sở hữu | 1. `ownerUser` gọi `DELETE /api/tasks/{id}` | N/A | `204 No Content` hoặc `200 OK`, task không còn trong DB |
+| TASK-08 | Xóa task bởi Admin | 1. `Admin` gọi `DELETE /api/tasks/{id}` của user khác | N/A | `204 No Content` hoặc `200 OK` |
+| TASK-09 | Xóa task không tồn tại | 1. Gọi `DELETE /api/tasks/{fakeId}` | N/A | `404 Not Found` |
+| TASK-10 | Luồng trạng thái task | 1. Tạo task (Open)<br>2. `PUT` → `InProgress` → `Done` | `{ "status":"InProgress" }` then `{ "status":"Done" }` | Mỗi chuyển trạng thái trả `200 OK`, activity log lưu các trạng thái và timestamp |
+| TASK-11 | Subtask tạo & cập nhật | 1. `POST /api/tasks/{id}/subtasks`<br>2. `PUT /api/tasks/{id}/subtasks/{subId}` | `{ "title":"Subtask 1" }` | `201 Created` cho subtask, cập nhật trạng thái parent nếu logic yêu cầu |
+| TASK-12 | Thêm/xóa tag | 1. `POST /api/tasks/{id}/tags` để thêm<br>2. `DELETE /api/tasks/{id}/tags/{tagId}` để xóa | `{ "tagName":"bug" }` | `200 OK`, tags hiển thị trong `GET /api/tasks/{id}` |
+| TASK-13 | Comment vào task | 1. `POST /api/tasks/{id}/comments` | `{ "content":"Please fix" }` | `201 Created`, comment có `author` và `timestamp` trong DB |
+| TASK-14 | Activity log kiểm tra | 1. Thực hiện sequence: create → update → comment → status change<br>2. Gọi `GET /api/tasks/{id}/activity` | N/A | Activity list chứa các entry tương ứng với timestamp và user |
 
-### 2.4 Task Status Flow
-- Verify task status transitions correctly (e.g., Open → InProgress → Done).
-- Verify timestamp or activity log is generated when status changes.
-- Verify completed tasks are shown correctly in task lists.
+### 2.2 Kiểm tra dữ liệu và công cụ
+- Xác nhận table `TaskItem`, `TaskSubtask`, `TaskTag`, `TaskComment`, `TaskActivity` trong DB sau các thao tác.
+- Dùng Postman/Swagger để thử các payload mẫu; dùng test tự động (xUnit + TestContainers) cho các integration tests.
 
-### 2.5 Subtasks and Tags
-- Verify user can create and update a subtask under a task.
-- Verify subtask completion updates the parent task's progress or status logic.
-- Verify user can add/remove tags from a task.
-- Verify tags are returned correctly in the task details response.
+### 2.3 Đề xuất bộ test tự động
+- `TaskCreateTests` : `TASK-01` → `TASK-03`.
+- `TaskUpdateTests` : `TASK-04` → `TASK-06`.
+- `TaskDeleteTests` : `TASK-07` → `TASK-09`.
+- `TaskFlowTests` : `TASK-10` → `TASK-14` (integration + activity verification).
 
-### 2.6 Task Comments & Activity
-- Verify user can add a comment to a task.
-- Verify comments include the user name and timestamp.
-- Verify activity log records task creation, updates, status changes, and comments.
+### 2.4 Sẵn sàng cho CI
+- Đảm bảo tests tạo/clean test data (transaction rollback hoặc DB container reset) để không gây rác cho pipeline.
+- Chạy các tests trong GitHub Actions job `backend-build` và upload coverage/artifacts.
+
 
 ## 3. Project Management
 
