@@ -27,17 +27,20 @@ jobs:
           - 5432:5432
 
     steps:
-    - uses: actions/checkout@v4
+    # Pin Commit SHA cho actions/checkout@v4.2.2
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       with:
         fetch-depth: 0
 
+    # Pin Commit SHA cho actions/setup-dotnet@v4.3.0
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@3951f35d4f7968da1d66231c518d6cb82e4e1388
       with:
         dotnet-version: 8.0.x
 
+    # Pin Commit SHA cho actions/setup-java@v4.7.0
     - name: Set up JDK 17
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12
       with:
         distribution: 'zulu'
         java-version: '17'
