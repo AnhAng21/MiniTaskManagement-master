@@ -37,22 +37,19 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    - name: Restore dependencies
+    - name: Restore & Build Backend
       run: |
-        SLN_FILE=$(find . -maxdepth 2 -name "*.sln" | head -n 1)
-        if [ -n "$SLN_FILE" ]; then
-          dotnet restore "$SLN_FILE"
-        else
-          dotnet restore
-        fi
-
-    - name: Build
-      run: dotnet build --configuration Release --no-restore
+        # Tìm file .sln hoặc .csproj trong toàn bộ repository
+        TARGET=$(find . -maxdepth 4 -name "*.sln" -o -name "*.csproj" | head -n 1)
+        echo "Found target for backend: $TARGET"
+        dotnet restore "$TARGET"
+        dotnet build "$TARGET" --configuration Release --no-restore
 
     - name: Install test dependencies
       run: |
-        TEST_PROJ=$(find . -name "*Tests.csproj" | head -n 1)
+        TEST_PROJ=$(find . -maxdepth 4 -name "*Tests.csproj" | head -n 1)
         if [ -n "$TEST_PROJ" ]; then
+          echo "Installing test package to $TEST_PROJ"
           dotnet add "$TEST_PROJ" package Microsoft.AspNetCore.Mvc.Testing || true
         fi
 
@@ -61,7 +58,11 @@ jobs:
     # ===================================================
     - name: 🧪 Run All Unit & Integration Tests
       run: |
-        dotnet test \
+        TEST_PROJ=$(find . -maxdepth 4 -name "*Tests.csproj" | head -n 1)
+        if [ -z "$TEST_PROJ" ]; then
+          TEST_PROJ=$(find . -maxdepth 4 -name "*.csproj" | head -n 1)
+        fi
+        dotnet test "$TEST_PROJ" \
           --configuration Release \
           --no-build \
           --logger "trx;LogFileName=test-results.trx" \
@@ -102,10 +103,16 @@ jobs:
 
     - name: Install dependencies & Build Frontend
       run: |
-        TARGET_DIR=$(find . -maxdepth 2 -name "package.json" -not -path "*/node_modules/*" -exec dirname {} \;)
-        echo "Found frontend directory at: $TARGET_DIR"
-        cd "$TARGET_DIR"
-        npm ci --ignore-scripts || npm install
+        # Chỉ tìm thư mục có chứa file package.json mang tên task-ui
+        UI_DIR=$(find . -maxdepth 4 -type d -name "task-ui" | head -n 1)
+        if [ -z "$UI_DIR" ]; then
+          UI_DIR=$(find . -maxdepth 4 -name "package.json" -exec grep -l '"name"' {} + | xargs -n1 dirname | grep -v "^\.$" | head -n 1)
+        fi
+        echo "Found frontend directory at: $UI_DIR"
+        cd "$UI_DIR"
+        
+        # Cài đặt và build
+        npm install || npm ci
         npm run lint || true
         npm test -- --coverage --watchAll=false --passWithNoTests || true
         npm run build
@@ -131,7 +138,9 @@ jobs:
         dotnet-version: '10.0.x'
 
     - name: Run dotnet audit
-      run: dotnet audit || true
+      run: |
+        TARGET=$(find . -maxdepth 4 -name "*.sln" -o -name "*.csproj" | head -n 1)
+        dotnet audit "$TARGET" || true
       continue-on-error: true
 
     - name: Setup Node.js for frontend scanning
@@ -141,10 +150,12 @@ jobs:
 
     - name: Run npm audit
       run: |
-        TARGET_DIR=$(find . -maxdepth 2 -name "package.json" -not -path "*/node_modules/*" -exec dirname {} \;)
-        cd "$TARGET_DIR"
-        npm ci --ignore-scripts || npm install
-        npm audit --audit-level=moderate || true
+        UI_DIR=$(find . -maxdepth 4 -type d -name "task-ui" | head -n 1)
+        if [ -n "$UI_DIR" ]; then
+          cd "$UI_DIR"
+          npm install --package-lock-only || true
+          npm audit --audit-level=moderate || true
+        fi
       continue-on-error: true
 
     - name: Run Trivy filesystem scan
