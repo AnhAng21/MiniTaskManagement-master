@@ -1,35 +1,14 @@
-name: CI/CD Pipeline
+name: CI/CD Pipeline with SonarCloud
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ "main", "develop" ]
   pull_request:
-    branches: [ main, develop ]
-
-permissions:
-  contents: read
-  security-events: write
+    branches: [ "main", "develop" ]
 
 jobs:
-  # ==================== BACKEND BUILD & TEST ====================
-  backend-build:
+  build-and-analyze:
     runs-on: ubuntu-latest
-    name: Backend - Build & Test (.NET)
-    
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: testuser
-          POSTGRES_PASSWORD: testpass
-          POSTGRES_DB: minitask_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
 
     steps:
     - uses: actions/checkout@v4
@@ -39,260 +18,91 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '10.0.x'
+        dotnet-version: 8.0.x
 
-    - name: Locate Backend Projects
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+
+    - name: Install SonarCloud scanner
       run: |
-        API_PROJ=$(find . -maxdepth 4 -name "*Api.csproj" -o -name "*.csproj" | grep -v "Test" | head -n 1)
+        dotnet tool install --global dotnet-sonarscanner
+        echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+    - name: Locate Solution & Test Project
+      run: |
+        SLN_FILE=$(find . -maxdepth 4 -name "*.slnx" -o -name "*.sln" | head -n 1)
         TEST_PROJ=$(find . -maxdepth 4 -name "*Tests.csproj" -o -name "*Test*.csproj" | head -n 1)
-        echo "API_PROJ=$API_PROJ" >> $GITHUB_ENV
+        echo "SLN_FILE=$SLN_FILE" >> $GITHUB_ENV
         echo "TEST_PROJ=$TEST_PROJ" >> $GITHUB_ENV
-        echo "Found API Project: $API_PROJ"
+        echo "Found Solution: $SLN_FILE"
         echo "Found Test Project: $TEST_PROJ"
 
     - name: Restore dependencies
-      run: dotnet restore "$API_PROJ"
+      run: dotnet restore "$SLN_FILE"
+
+    - name: Begin SonarCloud Analysis
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      run: |
+        dotnet-sonarscanner begin \
+          /k:"AnhAng21_MiniTaskManagement-master" \
+          /o:"anhang21" \
+          /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
+          /d:sonar.host.url="https://sonarcloud.io" \
+          /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
 
     - name: Build
-      run: dotnet build "$API_PROJ" --configuration Release --no-restore
-
-    - name: Install test dependencies
-      run: |
-        if [ -n "$TEST_PROJ" ]; then
-          dotnet add "$TEST_PROJ" package Microsoft.AspNetCore.Mvc.Testing || true
-        fi
+      run: dotnet build "$SLN_FILE" --no-restore
 
     # ===================================================
-    # KỊCH BẢN 6: API & INTEGRATION SCENARIOS
+    # KỊCH BẢN 1: AUTHENTICATION & AUTHORIZATION
     # ===================================================
-    - name: 🧪 Run Scenario 6 - API & Integration Tests
-      run: |
-        mkdir -p ./coverage
-        PROJ="${TEST_PROJ:-$API_PROJ}"
-        dotnet test "$PROJ" \
-          --configuration Release \
-          --no-build \
-          --filter "FullyQualifiedName~IntegrationTests" \
-          --logger "trx;LogFileName=test-results.trx" \
-          /p:CollectCoverage=true \
-          /p:CoverageFormat=opencover \
-          /p:CoverageFileName=$(pwd)/coverage/coverage.xml || true
-      env:
-        ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=minitask_test;Username=testuser;Password=testpass
+    - name: 🧪 Run Scenario 1 - Auth Tests (Register, Login, Role)
+      run: >
+        dotnet test "$TEST_PROJ"
+        --no-build
+        --filter "FullyQualifiedName~RegisterTests|FullyQualifiedName~LoginTests|FullyQualifiedName~AuthorizationTests"
+        --logger "console;verbosity=normal"
+        /p:CollectCoverage=true /p:CoverletOutputFormat=opencover || true
 
-    - name: Ensure Dummy Coverage File Exists
-      run: |
-        mkdir -p coverage
-        if [ ! -f "coverage/coverage.xml" ]; then
-          echo '<CoverageSession></CoverageSession>' > coverage/coverage.xml
-        fi
+    # ===================================================
+    # KỊCH BẢN 2: TASK MANAGEMENT
+    # ===================================================
+    - name: 🧪 Run Scenario 2 - Task Management Tests
+      run: >
+        dotnet test "$TEST_PROJ"
+        --no-build
+        --filter "FullyQualifiedName~TaskTests"
+        --logger "console;verbosity=normal"
+        /p:CollectCoverage=true /p:CoverletOutputFormat=opencover || true
 
-    - name: Upload test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: backend-test-results
-        path: '**/test-results.trx'
-        if-no-files-found: ignore
+    # ===================================================
+    # KỊCH BẢN 3: PROJECT MANAGEMENT
+    # ===================================================
+    - name: 🧪 Run Scenario 3 - Project Management Tests
+      run: >
+        dotnet test "$TEST_PROJ"
+        --no-build
+        --filter "FullyQualifiedName~ProjectTests"
+        --logger "console;verbosity=normal"
+        /p:CollectCoverage=true /p:CoverletOutputFormat=opencover || true
 
-    - name: Upload coverage reports
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: backend-coverage
-        path: 'coverage/coverage.xml'
-        if-no-files-found: ignore
+    # ===================================================
+    # KỊCH BẢN 5: ADMIN FLOWS
+    # ===================================================
+    - name: 🧪 Run Scenario 5 - Admin Flows Tests
+      run: >
+        dotnet test "$TEST_PROJ"
+        --no-build
+        --filter "FullyQualifiedName~AdminTests"
+        --logger "console;verbosity=normal"
+        /p:CollectCoverage=true /p:CoverletOutputFormat=opencover || true
 
-  # ==================== FRONTEND BUILD & TEST ====================
-  frontend-build:
-    runs-on: ubuntu-latest
-    name: Frontend - Build & Test (Next.js)
-    
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-
-    - name: Install dependencies & Build Frontend
-      run: |
-        UI_DIR=$(find . -maxdepth 4 -type d -name "task-ui" | head -n 1)
-        if [ -z "$UI_DIR" ]; then
-          UI_DIR=$(find . -maxdepth 4 -name "package.json" -exec grep -l '"name"' {} + | xargs -n1 dirname | grep -v "^\.$" | head -n 1)
-        fi
-        echo "Found frontend directory at: $UI_DIR"
-        cd "$UI_DIR"
-        
-        npm install || npm ci
-        npm run lint || true
-        npm test -- --coverage --watchAll=false --passWithNoTests || true
-        npm run build
-
-    - name: Ensure Dummy Frontend Coverage Exists
-      run: |
-        mkdir -p task-ui/coverage
-        if [ ! -f "task-ui/coverage/lcov.info" ]; then
-          touch task-ui/coverage/lcov.info
-        fi
-
-    - name: Upload coverage reports
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: frontend-coverage
-        path: '**/coverage'
-        if-no-files-found: ignore
-
-  # ==================== SECURITY CHECKS ====================
-  security:
-    runs-on: ubuntu-latest
-    name: Security - Dependency & SAST Scanning
-    
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup .NET for backend scanning
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '10.0.x'
-
-    - name: Run dotnet audit (NuGet packages)
-      run: |
-        TARGET=$(find . -maxdepth 4 -name "*.sln" -o -name "*.csproj" | head -n 1)
-        dotnet audit "$TARGET" || true
-      continue-on-error: true
-
-    - name: Setup Node.js for frontend scanning
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-
-    - name: Run npm audit (npm packages)
-      run: |
-        UI_DIR=$(find . -maxdepth 4 -type d -name "task-ui" | head -n 1)
-        if [ -n "$UI_DIR" ]; then
-          cd "$UI_DIR"
-          npm install --package-lock-only || true
-          npm audit --audit-level=moderate || true
-        fi
-      continue-on-error: true
-
-    - name: Run Trivy filesystem scan
-      uses: aquasecurity/trivy-action@v0.29.0
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-      continue-on-error: true
-
-    - name: Upload Trivy scan results
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: 'trivy-results.sarif'
-      continue-on-error: true
-
-  # ==================== SONARQUBE ANALYSIS ====================
-  sonarqube:
-    runs-on: ubuntu-latest
-    name: Code Quality - SonarQube Analysis
-    needs: [backend-build, frontend-build, security]
-    
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Download backend coverage
-      uses: actions/download-artifact@v4
-      continue-on-error: true
-      with:
-        name: backend-coverage
-        path: backend-coverage
-
-    - name: Download frontend coverage
-      uses: actions/download-artifact@v4
-      continue-on-error: true
-      with:
-        name: frontend-coverage
-        path: frontend-coverage
-
-    - name: Setup Java for SonarQube scanner
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-
-    - name: SonarQube Scan
-      uses: SonarSource/sonarqube-scan-action@v5.0.0
-      continue-on-error: true
-      env:
-        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      with:
-        args: >
-          -Dsonar.projectKey=mini-task-management
-          -Dsonar.projectName="Mini Task Management"
-          -Dsonar.sources=.
-          -Dsonar.javascript.lcov.reportPaths=frontend-coverage/lcov.info
-          -Dsonar.coverageReportPaths=backend-coverage/coverage.xml
-
-    - name: SonarQube Quality Gate Check
-      uses: SonarSource/sonarqube-quality-gate-action@v1.1.0
-      timeout-minutes: 5
+    - name: End SonarCloud Analysis
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      run: dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
       continue-on-error: true
-
-  # ==================== DOCKER BUILD (Optional) ====================
-  docker-build:
-    runs-on: ubuntu-latest
-    name: Docker - Build Images
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Build Backend Docker image
-      uses: docker/build-push-action@v6
-      with:
-        context: .
-        file: MiniTaskManagement.Api/Dockerfile
-        push: false
-        tags: mini-task-api:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-      continue-on-error: true
-
-    - name: Build Frontend Docker image
-      uses: docker/build-push-action@v6
-      with:
-        context: task-ui
-        push: false
-        tags: mini-task-ui:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-      continue-on-error: true
-
-  # ==================== SUMMARY ====================
-  summary:
-    runs-on: ubuntu-latest
-    name: Pipeline Summary
-    needs: [backend-build, frontend-build, security, sonarqube]
-    if: always()
-    
-    steps:
-    - name: Pipeline Status
-      run: |
-        echo "✅ Backend Build & Scenario 6 Tests: ${{ needs.backend-build.result }}"
-        echo "✅ Frontend Build: ${{ needs.frontend-build.result }}"
-        echo "🔒 Security Scan: ${{ needs.security.result }}"
-        echo "📊 SonarQube Analysis: ${{ needs.sonarqube.result }}"
-      shell: bash
