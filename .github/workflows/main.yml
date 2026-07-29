@@ -222,12 +222,13 @@ jobs:
     - name: SonarQube Scan
       uses: SonarSource/sonarqube-scan-action@v5.0.0
       env:
-        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        SONAR_HOST_URL: https://sonarcloud.io
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       with:
         args: >
           -Dsonar.projectKey=mini-task-management
           -Dsonar.projectName="Mini Task Management"
+          -Dsonar.organization=anhang21
           -Dsonar.sources=.
           -Dsonar.javascript.lcov.reportPaths=frontend-coverage/lcov.info
           -Dsonar.coverageReportPaths=backend-coverage/coverage.xml
