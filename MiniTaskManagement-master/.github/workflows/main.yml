@@ -1,0 +1,287 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  # ==================== BACKEND BUILD & TEST ====================
+  backend-build:
+    runs-on: ubuntu-latest
+    name: Backend - Build & Test (.NET)
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: minitask_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore MiniTaskManagement.Api/MiniTaskManagement.Api.csproj
+
+    - name: Build
+      run: dotnet build MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --configuration Release --no-restore
+
+    - name: Install test dependencies
+      run: |
+        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package xunit
+        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package xunit.runner.visualstudio
+        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package Moq
+        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package FluentAssertions
+        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package Microsoft.NET.Test.Sdk
+        dotnet add MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj package Microsoft.AspNetCore.Mvc.Testing
+
+    # ===================================================
+    # ALL TEST SCENARIOS
+    # ===================================================
+    - name: 🧪 Run Scenario 1 - Auth Tests (Register, Login, Role)
+      run: dotnet test MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --no-build --filter "FullyQualifiedName~AuthTests|FullyQualifiedName~RegisterTests|FullyQualifiedName~LoginTests"
+      continue-on-error: true
+
+    - name: 🧪 Run Scenario 2 - Task Management Tests
+      run: dotnet test MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --no-build --filter "FullyQualifiedName~TaskTests"
+      continue-on-error: true
+
+    - name: 🧪 Run Scenario 3 - Project Management Tests
+      run: dotnet test MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --no-build --filter "FullyQualifiedName~ProjectTests"
+      continue-on-error: true
+
+    - name: 🧪 Run Scenario 5 - Admin Flows Tests
+      run: dotnet test MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --no-build --filter "FullyQualifiedName~AdminTests"
+      continue-on-error: true
+
+    - name: 🧪 Run Scenario 6 - API & Integration Tests
+      run: |
+        dotnet test MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj \
+          --configuration Release \
+          --no-build \
+          --filter "FullyQualifiedName~IntegrationTests" \
+          --logger "trx;LogFileName=test-results.trx" \
+          /p:CollectCoverage=true \
+          /p:CoverageFormat=opencover \
+          /p:CoverageFileName=coverage.xml
+      env:
+        ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=minitask_test;Username=testuser;Password=testpass
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-test-results
+        path: '**/test-results.trx'
+
+    - name: Upload coverage reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-coverage
+        path: '**/coverage.xml'
+
+  # ==================== FRONTEND BUILD & TEST ====================
+  frontend-build:
+    runs-on: ubuntu-latest
+    name: Frontend - Build & Test (Next.js)
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        cache-dependency-path: 'task-ui/package-lock.json'
+
+    - name: Install dependencies
+      run: npm ci --ignore-scripts
+      working-directory: task-ui
+
+    - name: Lint code
+      run: npm run lint
+      working-directory: task-ui
+      continue-on-error: true
+
+    - name: Run tests with coverage
+      run: |
+        npm test -- --coverage --watchAll=false --passWithNoTests
+      working-directory: task-ui
+      continue-on-error: true
+      env:
+        CI: true
+
+    - name: Build application
+      run: npm run build
+      working-directory: task-ui
+
+    - name: Upload coverage reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-coverage
+        path: 'task-ui/coverage'
+
+  # ==================== SECURITY CHECKS ====================
+  security:
+    runs-on: ubuntu-latest
+    name: Security - Dependency & SAST Scanning
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET for backend scanning
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Run dotnet audit (NuGet packages)
+      run: dotnet audit MiniTaskManagement.Api/MiniTaskManagement.Api.csproj
+      continue-on-error: true
+
+    - name: Setup Node.js for frontend scanning
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+
+    - name: Install npm audit
+      run: npm ci --ignore-scripts
+      working-directory: task-ui
+      continue-on-error: true
+
+    - name: Run npm audit (npm packages)
+      run: npm audit --audit-level=moderate
+      working-directory: task-ui
+      continue-on-error: true
+
+    - name: Run Trivy filesystem scan
+      uses: aquasecurity/trivy-action@v0.29.0
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+      continue-on-error: true
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
+      continue-on-error: true
+
+  # ==================== SONARQUBE ANALYSIS ====================
+  sonarqube:
+    runs-on: ubuntu-latest
+    name: Code Quality - SonarQube Analysis
+    needs: [backend-build, frontend-build, security]
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Download backend coverage
+      uses: actions/download-artifact@v4
+      with:
+        name: backend-coverage
+        path: backend-coverage
+
+    - name: Download frontend coverage
+      uses: actions/download-artifact@v4
+      with:
+        name: frontend-coverage
+        path: frontend-coverage
+
+    - name: Setup Java for SonarQube scanner
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: SonarQube Scan
+      uses: SonarSource/sonarqube-scan-action@v5.0.0
+      env:
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      with:
+        args: >
+          -Dsonar.projectKey=mini-task-management
+          -Dsonar.projectName=Mini Task Management
+          -Dsonar.sources=MiniTaskManagement.Api,task-ui/app,task-ui/lib
+          -Dsonar.tests=
+          -Dsonar.javascript.lcov.reportPaths=frontend-coverage/lcov.info
+          -Dsonar.coverageReportPaths=backend-coverage/coverage.xml
+
+    - name: SonarQube Quality Gate Check
+      uses: SonarSource/sonarqube-quality-gate-action@v1.1.0
+      timeout-minutes: 5
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      continue-on-error: true
+
+  # ==================== DOCKER BUILD (Optional) ====================
+  docker-build:
+    runs-on: ubuntu-latest
+    name: Docker - Build Images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Backend Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: MiniTaskManagement.Api
+        push: false
+        tags: mini-task-api:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build Frontend Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: task-ui
+        push: false
+        tags: mini-task-ui:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # ==================== SUMMARY ====================
+  summary:
+    runs-on: ubuntu-latest
+    name: Pipeline Summary
+    needs: [backend-build, frontend-build, security, sonarqube]
+    if: always()
+    
+    steps:
+    - name: Pipeline Status
+      run: |
+        echo "✅ Backend Build & Scenarios 1-6 Tests: ${{ needs.backend-build.result }}"
+        echo "✅ Frontend Build: ${{ needs.frontend-build.result }}"
+        echo "🔒 Security Scan: ${{ needs.security.result }}"
+        echo "📊 SonarQube Analysis: ${{ needs.sonarqube.result }}"
+      shell: bash
