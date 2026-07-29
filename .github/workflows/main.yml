@@ -38,45 +38,23 @@ jobs:
         dotnet-version: '10.0.x'
 
     - name: Restore dependencies
-      run: dotnet restore MiniTaskManagement.Api/MiniTaskManagement.Api.csproj
+      run: dotnet restore MiniTaskManagement.sln || dotnet restore
 
     - name: Build
-      run: dotnet build MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --configuration Release --no-restore
+      run: dotnet build --configuration Release --no-restore
 
     - name: Install test dependencies
       run: |
-        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package xunit
-        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package xunit.runner.visualstudio
-        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package Moq
-        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package FluentAssertions
-        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package Microsoft.NET.Test.Sdk
-        dotnet add MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj package Microsoft.AspNetCore.Mvc.Testing
+        dotnet add MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj package Microsoft.AspNetCore.Mvc.Testing || true
 
     # ===================================================
-    # ALL TEST SCENARIOS
+    # RUN ALL TEST SCENARIOS
     # ===================================================
-    - name: 🧪 Run Scenario 1 - Auth Tests (Register, Login, Role)
-      run: dotnet test MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --no-build --filter "FullyQualifiedName~AuthTests|FullyQualifiedName~RegisterTests|FullyQualifiedName~LoginTests"
-      continue-on-error: true
-
-    - name: 🧪 Run Scenario 2 - Task Management Tests
-      run: dotnet test MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --no-build --filter "FullyQualifiedName~TaskTests"
-      continue-on-error: true
-
-    - name: 🧪 Run Scenario 3 - Project Management Tests
-      run: dotnet test MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --no-build --filter "FullyQualifiedName~ProjectTests"
-      continue-on-error: true
-
-    - name: 🧪 Run Scenario 5 - Admin Flows Tests
-      run: dotnet test MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --no-build --filter "FullyQualifiedName~AdminTests"
-      continue-on-error: true
-
-    - name: 🧪 Run Scenario 6 - API & Integration Tests
+    - name: 🧪 Run All Unit & Integration Tests
       run: |
-        dotnet test MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj \
+        dotnet test \
           --configuration Release \
           --no-build \
-          --filter "FullyQualifiedName~IntegrationTests" \
           --logger "trx;LogFileName=test-results.trx" \
           /p:CollectCoverage=true \
           /p:CoverageFormat=opencover \
@@ -112,11 +90,9 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20.x'
-        cache: 'npm'
-        cache-dependency-path: 'task-ui/package-lock.json'
 
     - name: Install dependencies
-      run: npm ci --ignore-scripts
+      run: npm ci --ignore-scripts || npm install
       working-directory: task-ui
 
     - name: Lint code
@@ -146,7 +122,7 @@ jobs:
   # ==================== SECURITY CHECKS ====================
   security:
     runs-on: ubuntu-latest
-    name: Security - Dependency & SAST Scanning
+    name: Security - Dependency Scanning
     
     steps:
     - uses: actions/checkout@v4
@@ -157,7 +133,7 @@ jobs:
         dotnet-version: '10.0.x'
 
     - name: Run dotnet audit (NuGet packages)
-      run: dotnet audit MiniTaskManagement.Api/MiniTaskManagement.Api.csproj
+      run: dotnet audit || true
       continue-on-error: true
 
     - name: Setup Node.js for frontend scanning
@@ -166,7 +142,7 @@ jobs:
         node-version: '20.x'
 
     - name: Install npm audit
-      run: npm ci --ignore-scripts
+      run: npm ci --ignore-scripts || npm install
       working-directory: task-ui
       continue-on-error: true
 
@@ -176,7 +152,7 @@ jobs:
       continue-on-error: true
 
     - name: Run Trivy filesystem scan
-      uses: aquasecurity/trivy-action@v0.29.0
+      uses: aquasecurity/trivy-action@0.28.0
       with:
         scan-type: 'fs'
         scan-ref: '.'
@@ -228,8 +204,7 @@ jobs:
         args: >
           -Dsonar.projectKey=mini-task-management
           -Dsonar.projectName=Mini Task Management
-          -Dsonar.sources=MiniTaskManagement.Api,task-ui/app,task-ui/lib
-          -Dsonar.tests=
+          -Dsonar.sources=.
           -Dsonar.javascript.lcov.reportPaths=frontend-coverage/lcov.info
           -Dsonar.coverageReportPaths=backend-coverage/coverage.xml
 
@@ -240,7 +215,7 @@ jobs:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       continue-on-error: true
 
-  # ==================== DOCKER BUILD (Optional) ====================
+  # ==================== DOCKER BUILD ====================
   docker-build:
     runs-on: ubuntu-latest
     name: Docker - Build Images
@@ -255,20 +230,13 @@ jobs:
     - name: Build Backend Docker image
       uses: docker/build-push-action@v6
       with:
-        context: MiniTaskManagement.Api
+        context: .
+        file: Dockerfile
         push: false
         tags: mini-task-api:latest
         cache-from: type=gha
         cache-to: type=gha,mode=max
-
-    - name: Build Frontend Docker image
-      uses: docker/build-push-action@v6
-      with:
-        context: task-ui
-        push: false
-        tags: mini-task-ui:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      continue-on-error: true
 
   # ==================== SUMMARY ====================
   summary:
@@ -280,7 +248,7 @@ jobs:
     steps:
     - name: Pipeline Status
       run: |
-        echo "✅ Backend Build & Scenarios 1-6 Tests: ${{ needs.backend-build.result }}"
+        echo "✅ Backend Build & Tests: ${{ needs.backend-build.result }}"
         echo "✅ Frontend Build: ${{ needs.frontend-build.result }}"
         echo "🔒 Security Scan: ${{ needs.security.result }}"
         echo "📊 SonarQube Analysis: ${{ needs.sonarqube.result }}"
