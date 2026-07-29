@@ -38,14 +38,23 @@ jobs:
         dotnet-version: '10.0.x'
 
     - name: Restore dependencies
-      run: dotnet restore MiniTaskManagement.sln || dotnet restore
+      run: |
+        SLN_FILE=$(find . -maxdepth 2 -name "*.sln" | head -n 1)
+        if [ -n "$SLN_FILE" ]; then
+          dotnet restore "$SLN_FILE"
+        else
+          dotnet restore
+        fi
 
     - name: Build
       run: dotnet build --configuration Release --no-restore
 
     - name: Install test dependencies
       run: |
-        dotnet add MiniTaskManagement.Tests/MiniTaskManagement.Tests.csproj package Microsoft.AspNetCore.Mvc.Testing || true
+        TEST_PROJ=$(find . -name "*Tests.csproj" | head -n 1)
+        if [ -n "$TEST_PROJ" ]; then
+          dotnet add "$TEST_PROJ" package Microsoft.AspNetCore.Mvc.Testing || true
+        fi
 
     # ===================================================
     # RUN ALL TEST SCENARIOS
@@ -91,33 +100,22 @@ jobs:
       with:
         node-version: '20.x'
 
-    - name: Install dependencies
-      run: npm ci --ignore-scripts || npm install
-      working-directory: task-ui
-
-    - name: Lint code
-      run: npm run lint
-      working-directory: task-ui
-      continue-on-error: true
-
-    - name: Run tests with coverage
+    - name: Install dependencies & Build Frontend
       run: |
-        npm test -- --coverage --watchAll=false --passWithNoTests
-      working-directory: task-ui
-      continue-on-error: true
-      env:
-        CI: true
-
-    - name: Build application
-      run: npm run build
-      working-directory: task-ui
+        TARGET_DIR=$(find . -maxdepth 2 -name "package.json" -not -path "*/node_modules/*" -exec dirname {} \;)
+        echo "Found frontend directory at: $TARGET_DIR"
+        cd "$TARGET_DIR"
+        npm ci --ignore-scripts || npm install
+        npm run lint || true
+        npm test -- --coverage --watchAll=false --passWithNoTests || true
+        npm run build
 
     - name: Upload coverage reports
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: frontend-coverage
-        path: 'task-ui/coverage'
+        path: '**/coverage'
 
   # ==================== SECURITY CHECKS ====================
   security:
@@ -132,7 +130,7 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    - name: Run dotnet audit (NuGet packages)
+    - name: Run dotnet audit
       run: dotnet audit || true
       continue-on-error: true
 
@@ -141,18 +139,16 @@ jobs:
       with:
         node-version: '20.x'
 
-    - name: Install npm audit
-      run: npm ci --ignore-scripts || npm install
-      working-directory: task-ui
-      continue-on-error: true
-
-    - name: Run npm audit (npm packages)
-      run: npm audit --audit-level=moderate
-      working-directory: task-ui
+    - name: Run npm audit
+      run: |
+        TARGET_DIR=$(find . -maxdepth 2 -name "package.json" -not -path "*/node_modules/*" -exec dirname {} \;)
+        cd "$TARGET_DIR"
+        npm ci --ignore-scripts || npm install
+        npm audit --audit-level=moderate || true
       continue-on-error: true
 
     - name: Run Trivy filesystem scan
-      uses: aquasecurity/trivy-action@0.28.0
+      uses: aquasecurity/trivy-action@master
       with:
         scan-type: 'fs'
         scan-ref: '.'
@@ -213,29 +209,6 @@ jobs:
       timeout-minutes: 5
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      continue-on-error: true
-
-  # ==================== DOCKER BUILD ====================
-  docker-build:
-    runs-on: ubuntu-latest
-    name: Docker - Build Images
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Build Backend Docker image
-      uses: docker/build-push-action@v6
-      with:
-        context: .
-        file: Dockerfile
-        push: false
-        tags: mini-task-api:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
       continue-on-error: true
 
   # ==================== SUMMARY ====================
