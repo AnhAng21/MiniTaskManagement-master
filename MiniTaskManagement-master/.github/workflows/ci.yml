@@ -103,12 +103,6 @@ jobs:
       working-directory: task-ui
       continue-on-error: true
 
-    - name: Setup Jest
-      run: |
-        npm install --save-dev --ignore-scripts jest @testing-library/react @testing-library/jest-dom @testing-library/user-event jest-environment-jsdom
-      working-directory: task-ui
-      continue-on-error: true
-
     - name: Run tests with coverage
       run: |
         npm test -- --coverage --watchAll=false --passWithNoTests
