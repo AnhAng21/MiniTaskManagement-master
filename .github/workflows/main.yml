@@ -10,6 +10,22 @@ jobs:
   build-and-analyze:
     runs-on: ubuntu-latest
 
+    # Dựng PostgreSQL Service Container cho Scenario 6 Integration Tests
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: minitask_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
     - uses: actions/checkout@v4
       with:
@@ -27,7 +43,9 @@ jobs:
         java-version: '17'
 
     - name: Install SonarCloud scanner
-      run: dotnet tool install --global dotnet-sonarscanner
+      run: |
+        dotnet tool install --global dotnet-sonarscanner
+        echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
 
     - name: Restore dependencies
       run: dotnet restore MiniTaskManagement-master/MiniTaskManagement.slnx
@@ -89,6 +107,19 @@ jobs:
         --filter "FullyQualifiedName~AdminTests"
         --logger "console;verbosity=normal"
         /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+
+    # ===================================================
+    # KỊCH BẢN 6: API & INTEGRATION SCENARIOS
+    # ===================================================
+    - name: 🧪 Run Scenario 6 - API & Integration Tests
+      run: >
+        dotnet test MiniTaskManagement-master/MiniTaskManagement.Tests/*.csproj
+        --no-build
+        --filter "FullyQualifiedName~IntegrationTests"
+        --logger "console;verbosity=normal"
+        /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+      env:
+        ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=minitask_test;Username=testuser;Password=testpass
 
     - name: End SonarCloud Analysis
       env:
