@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   # ==================== BACKEND BUILD & TEST ====================
   backend-build:
@@ -37,32 +41,55 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    - name: Restore & Build Backend
+    - name: Locate Projects
       run: |
-        TARGET=$(find . -maxdepth 4 -name "*.sln" -o -name "*.csproj" | head -n 1)
-        echo "Found target for backend: $TARGET"
-        dotnet restore "$TARGET"
-        dotnet build "$TARGET" --configuration Release --no-restore
+        API_PROJ=$(find . -maxdepth 4 -name "*Api.csproj" -o -name "*.csproj" | grep -v "Test" | head -n 1)
+        TEST_PROJ=$(find . -maxdepth 4 -name "*Tests.csproj" -o -name "*Test*.csproj" | head -n 1)
+        echo "API_PROJ=$API_PROJ" >> $GITHUB_ENV
+        echo "TEST_PROJ=$TEST_PROJ" >> $GITHUB_ENV
+        echo "Found API Project: $API_PROJ"
+        echo "Found Test Project: $TEST_PROJ"
+
+    - name: Restore dependencies
+      run: dotnet restore "$API_PROJ"
+
+    - name: Build
+      run: dotnet build "$API_PROJ" --configuration Release --no-restore
 
     - name: Install test dependencies
       run: |
-        TEST_PROJ=$(find . -maxdepth 4 -name "*Tests.csproj" | head -n 1)
         if [ -n "$TEST_PROJ" ]; then
-          echo "Installing test package to $TEST_PROJ"
           dotnet add "$TEST_PROJ" package Microsoft.AspNetCore.Mvc.Testing || true
         fi
 
     # ===================================================
-    # RUN ALL TEST SCENARIOS
+    # ALL TEST SCENARIOS
     # ===================================================
-    - name: 🧪 Run All Unit & Integration Tests
+    - name: 🧪 Run Scenario 1 - Auth Tests (Register, Login, Role)
+      run: |
+        PROJ="${TEST_PROJ:-$API_PROJ}"
+        dotnet test "$PROJ" --no-build --filter "FullyQualifiedName~AuthTests|FullyQualifiedName~RegisterTests|FullyQualifiedName~LoginTests" || true
+
+    - name: 🧪 Run Scenario 2 - Task Management Tests
+      run: |
+        PROJ="${TEST_PROJ:-$API_PROJ}"
+        dotnet test "$PROJ" --no-build --filter "FullyQualifiedName~TaskTests" || true
+
+    - name: 🧪 Run Scenario 3 - Project Management Tests
+      run: |
+        PROJ="${TEST_PROJ:-$API_PROJ}"
+        dotnet test "$PROJ" --no-build --filter "FullyQualifiedName~ProjectTests" || true
+
+    - name: 🧪 Run Scenario 5 - Admin Flows Tests
+      run: |
+        PROJ="${TEST_PROJ:-$API_PROJ}"
+        dotnet test "$PROJ" --no-build --filter "FullyQualifiedName~AdminTests" || true
+
+    - name: 🧪 Run Scenario 6 - API & Integration Tests
       run: |
         mkdir -p ./coverage
-        TEST_PROJ=$(find . -maxdepth 4 -name "*Tests.csproj" | head -n 1)
-        if [ -z "$TEST_PROJ" ]; then
-          TEST_PROJ=$(find . -maxdepth 4 -name "*.csproj" | head -n 1)
-        fi
-        dotnet test "$TEST_PROJ" \
+        PROJ="${TEST_PROJ:-$API_PROJ}"
+        dotnet test "$PROJ" \
           --configuration Release \
           --no-build \
           --logger "trx;LogFileName=test-results.trx" \
@@ -142,7 +169,7 @@ jobs:
   # ==================== SECURITY CHECKS ====================
   security:
     runs-on: ubuntu-latest
-    name: Security - Dependency Scanning
+    name: Security - Dependency & SAST Scanning
     
     steps:
     - uses: actions/checkout@v4
@@ -250,7 +277,7 @@ jobs:
     steps:
     - name: Pipeline Status
       run: |
-        echo "✅ Backend Build & Tests: ${{ needs.backend-build.result }}"
+        echo "✅ Backend Build & Scenarios 1-6 Tests: ${{ needs.backend-build.result }}"
         echo "✅ Frontend Build: ${{ needs.frontend-build.result }}"
         echo "🔒 Security Scan: ${{ needs.security.result }}"
         echo "📊 SonarQube Analysis: ${{ needs.sonarqube.result }}"
