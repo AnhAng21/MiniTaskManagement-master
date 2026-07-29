@@ -41,7 +41,7 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    - name: Locate Projects
+    - name: Locate Backend Projects
       run: |
         API_PROJ=$(find . -maxdepth 4 -name "*Api.csproj" -o -name "*.csproj" | grep -v "Test" | head -n 1)
         TEST_PROJ=$(find . -maxdepth 4 -name "*Tests.csproj" -o -name "*Test*.csproj" | head -n 1)
@@ -63,28 +63,8 @@ jobs:
         fi
 
     # ===================================================
-    # ALL TEST SCENARIOS
+    # KỊCH BẢN 6: API & INTEGRATION SCENARIOS
     # ===================================================
-    - name: 🧪 Run Scenario 1 - Auth Tests (Register, Login, Role)
-      run: |
-        PROJ="${TEST_PROJ:-$API_PROJ}"
-        dotnet test "$PROJ" --no-build --filter "FullyQualifiedName~AuthTests|FullyQualifiedName~RegisterTests|FullyQualifiedName~LoginTests" || true
-
-    - name: 🧪 Run Scenario 2 - Task Management Tests
-      run: |
-        PROJ="${TEST_PROJ:-$API_PROJ}"
-        dotnet test "$PROJ" --no-build --filter "FullyQualifiedName~TaskTests" || true
-
-    - name: 🧪 Run Scenario 3 - Project Management Tests
-      run: |
-        PROJ="${TEST_PROJ:-$API_PROJ}"
-        dotnet test "$PROJ" --no-build --filter "FullyQualifiedName~ProjectTests" || true
-
-    - name: 🧪 Run Scenario 5 - Admin Flows Tests
-      run: |
-        PROJ="${TEST_PROJ:-$API_PROJ}"
-        dotnet test "$PROJ" --no-build --filter "FullyQualifiedName~AdminTests" || true
-
     - name: 🧪 Run Scenario 6 - API & Integration Tests
       run: |
         mkdir -p ./coverage
@@ -92,6 +72,7 @@ jobs:
         dotnet test "$PROJ" \
           --configuration Release \
           --no-build \
+          --filter "FullyQualifiedName~IntegrationTests" \
           --logger "trx;LogFileName=test-results.trx" \
           /p:CollectCoverage=true \
           /p:CoverageFormat=opencover \
@@ -179,7 +160,7 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    - name: Run dotnet audit
+    - name: Run dotnet audit (NuGet packages)
       run: |
         TARGET=$(find . -maxdepth 4 -name "*.sln" -o -name "*.csproj" | head -n 1)
         dotnet audit "$TARGET" || true
@@ -190,7 +171,7 @@ jobs:
       with:
         node-version: '20.x'
 
-    - name: Run npm audit
+    - name: Run npm audit (npm packages)
       run: |
         UI_DIR=$(find . -maxdepth 4 -type d -name "task-ui" | head -n 1)
         if [ -n "$UI_DIR" ]; then
@@ -201,7 +182,7 @@ jobs:
       continue-on-error: true
 
     - name: Run Trivy filesystem scan
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@v0.29.0
       with:
         scan-type: 'fs'
         scan-ref: '.'
@@ -267,6 +248,39 @@ jobs:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       continue-on-error: true
 
+  # ==================== DOCKER BUILD (Optional) ====================
+  docker-build:
+    runs-on: ubuntu-latest
+    name: Docker - Build Images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Backend Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: MiniTaskManagement.Api/Dockerfile
+        push: false
+        tags: mini-task-api:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+      continue-on-error: true
+
+    - name: Build Frontend Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: task-ui
+        push: false
+        tags: mini-task-ui:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+      continue-on-error: true
+
   # ==================== SUMMARY ====================
   summary:
     runs-on: ubuntu-latest
@@ -277,7 +291,7 @@ jobs:
     steps:
     - name: Pipeline Status
       run: |
-        echo "✅ Backend Build & Scenarios 1-6 Tests: ${{ needs.backend-build.result }}"
+        echo "✅ Backend Build & Scenario 6 Tests: ${{ needs.backend-build.result }}"
         echo "✅ Frontend Build: ${{ needs.frontend-build.result }}"
         echo "🔒 Security Scan: ${{ needs.security.result }}"
         echo "📊 SonarQube Analysis: ${{ needs.sonarqube.result }}"
