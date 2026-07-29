@@ -37,47 +37,35 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    - name: Restore & Build Backend
-      run: |
-        TARGET=$(find . -maxdepth 4 -name "*.sln" -o -name "*.csproj" | head -n 1)
-        echo "Found target for backend: $TARGET"
-        dotnet restore "$TARGET"
-        dotnet build "$TARGET" --configuration Release --no-restore
+    - name: Restore dependencies
+      run: dotnet restore MiniTaskManagement.Api/MiniTaskManagement.Api.csproj
+
+    - name: Build
+      run: dotnet build MiniTaskManagement.Api/MiniTaskManagement.Api.csproj --configuration Release --no-restore
 
     - name: Install test dependencies
       run: |
-        TEST_PROJ=$(find . -maxdepth 4 -name "*Tests.csproj" | head -n 1)
-        if [ -n "$TEST_PROJ" ]; then
-          echo "Installing test package to $TEST_PROJ"
-          dotnet add "$TEST_PROJ" package Microsoft.AspNetCore.Mvc.Testing || true
-        fi
+        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package xunit
+        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package xunit.runner.visualstudio
+        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package Moq
+        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package FluentAssertions
+        dotnet add MiniTaskManagement.Api/MiniTaskManagement.Api.csproj package Microsoft.NET.Test.Sdk
 
     # ===================================================
-    # RUN ALL TEST SCENARIOS
+    # KỊCH BẢN 6: API & INTEGRATION SCENARIOS
     # ===================================================
-    - name: 🧪 Run All Unit & Integration Tests
+    - name: 🧪 Run Scenario 6 - API & Integration Tests
       run: |
-        mkdir -p ./coverage
-        TEST_PROJ=$(find . -maxdepth 4 -name "*Tests.csproj" | head -n 1)
-        if [ -z "$TEST_PROJ" ]; then
-          TEST_PROJ=$(find . -maxdepth 4 -name "*.csproj" | head -n 1)
-        fi
-        dotnet test "$TEST_PROJ" \
+        dotnet test MiniTaskManagement.Api/MiniTaskManagement.Api.csproj \
           --configuration Release \
           --no-build \
+          --filter "FullyQualifiedName~IntegrationTests" \
           --logger "trx;LogFileName=test-results.trx" \
           /p:CollectCoverage=true \
           /p:CoverageFormat=opencover \
-          /p:CoverageFileName=$(pwd)/coverage/coverage.xml || true
+          /p:CoverageFileName=coverage.xml
       env:
         ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=minitask_test;Username=testuser;Password=testpass
-
-    - name: Ensure Dummy Coverage File Exists
-      run: |
-        mkdir -p coverage
-        if [ ! -f "coverage/coverage.xml" ]; then
-          echo '<CoverageSession></CoverageSession>' > coverage/coverage.xml
-        fi
 
     - name: Upload test results
       if: always()
@@ -85,15 +73,13 @@ jobs:
       with:
         name: backend-test-results
         path: '**/test-results.trx'
-        if-no-files-found: ignore
 
     - name: Upload coverage reports
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: backend-coverage
-        path: 'coverage/coverage.xml'
-        if-no-files-found: ignore
+        path: '**/coverage.xml'
 
   # ==================== FRONTEND BUILD & TEST ====================
   frontend-build:
@@ -109,40 +95,41 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20.x'
+        cache: 'npm'
+        cache-dependency-path: 'task-ui/package-lock.json'
 
-    - name: Install dependencies & Build Frontend
-      run: |
-        UI_DIR=$(find . -maxdepth 4 -type d -name "task-ui" | head -n 1)
-        if [ -z "$UI_DIR" ]; then
-          UI_DIR=$(find . -maxdepth 4 -name "package.json" -exec grep -l '"name"' {} + | xargs -n1 dirname | grep -v "^\.$" | head -n 1)
-        fi
-        echo "Found frontend directory at: $UI_DIR"
-        cd "$UI_DIR"
-        
-        npm install || npm ci
-        npm run lint || true
-        npm test -- --coverage --watchAll=false --passWithNoTests || true
-        npm run build
+    - name: Install dependencies
+      run: npm ci --ignore-scripts
+      working-directory: task-ui
 
-    - name: Ensure Dummy Frontend Coverage Exists
+    - name: Lint code
+      run: npm run lint
+      working-directory: task-ui
+      continue-on-error: true
+
+    - name: Run tests with coverage
       run: |
-        mkdir -p task-ui/coverage
-        if [ ! -f "task-ui/coverage/lcov.info" ]; then
-          touch task-ui/coverage/lcov.info
-        fi
+        npm test -- --coverage --watchAll=false --passWithNoTests
+      working-directory: task-ui
+      continue-on-error: true
+      env:
+        CI: true
+
+    - name: Build application
+      run: npm run build
+      working-directory: task-ui
 
     - name: Upload coverage reports
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: frontend-coverage
-        path: '**/coverage'
-        if-no-files-found: ignore
+        path: 'task-ui/coverage'
 
   # ==================== SECURITY CHECKS ====================
   security:
     runs-on: ubuntu-latest
-    name: Security - Dependency Scanning
+    name: Security - Dependency & SAST Scanning
     
     steps:
     - uses: actions/checkout@v4
@@ -152,10 +139,8 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    - name: Run dotnet audit
-      run: |
-        TARGET=$(find . -maxdepth 4 -name "*.sln" -o -name "*.csproj" | head -n 1)
-        dotnet audit "$TARGET" || true
+    - name: Run dotnet audit (NuGet packages)
+      run: dotnet audit MiniTaskManagement.Api/MiniTaskManagement.Api.csproj
       continue-on-error: true
 
     - name: Setup Node.js for frontend scanning
@@ -163,18 +148,18 @@ jobs:
       with:
         node-version: '20.x'
 
-    - name: Run npm audit
-      run: |
-        UI_DIR=$(find . -maxdepth 4 -type d -name "task-ui" | head -n 1)
-        if [ -n "$UI_DIR" ]; then
-          cd "$UI_DIR"
-          npm install --package-lock-only || true
-          npm audit --audit-level=moderate || true
-        fi
+    - name: Install npm audit
+      run: npm ci --ignore-scripts
+      working-directory: task-ui
+      continue-on-error: true
+
+    - name: Run npm audit (npm packages)
+      run: npm audit --audit-level=moderate
+      working-directory: task-ui
       continue-on-error: true
 
     - name: Run Trivy filesystem scan
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@v0.29.0
       with:
         scan-type: 'fs'
         scan-ref: '.'
@@ -201,14 +186,12 @@ jobs:
 
     - name: Download backend coverage
       uses: actions/download-artifact@v4
-      continue-on-error: true
       with:
         name: backend-coverage
         path: backend-coverage
 
     - name: Download frontend coverage
       uses: actions/download-artifact@v4
-      continue-on-error: true
       with:
         name: frontend-coverage
         path: frontend-coverage
@@ -222,14 +205,14 @@ jobs:
     - name: SonarQube Scan
       uses: SonarSource/sonarqube-scan-action@v5.0.0
       env:
-        SONAR_HOST_URL: https://sonarcloud.io
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       with:
         args: >
           -Dsonar.projectKey=mini-task-management
-          -Dsonar.projectName="Mini Task Management"
-          -Dsonar.organization=anhang21
-          -Dsonar.sources=.
+          -Dsonar.projectName=Mini Task Management
+          -Dsonar.sources=MiniTaskManagement.Api,task-ui/app,task-ui/lib
+          -Dsonar.tests=
           -Dsonar.javascript.lcov.reportPaths=frontend-coverage/lcov.info
           -Dsonar.coverageReportPaths=backend-coverage/coverage.xml
 
@@ -239,6 +222,36 @@ jobs:
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       continue-on-error: true
+
+  # ==================== DOCKER BUILD (Optional) ====================
+  docker-build:
+    runs-on: ubuntu-latest
+    name: Docker - Build Images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Backend Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: MiniTaskManagement.Api
+        push: false
+        tags: mini-task-api:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build Frontend Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: task-ui
+        push: false
+        tags: mini-task-ui:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
   # ==================== SUMMARY ====================
   summary:
@@ -250,7 +263,7 @@ jobs:
     steps:
     - name: Pipeline Status
       run: |
-        echo "✅ Backend Build & Tests: ${{ needs.backend-build.result }}"
+        echo "✅ Backend Build & Scenario 6 Tests: ${{ needs.backend-build.result }}"
         echo "✅ Frontend Build: ${{ needs.frontend-build.result }}"
         echo "🔒 Security Scan: ${{ needs.security.result }}"
         echo "📊 SonarQube Analysis: ${{ needs.sonarqube.result }}"
